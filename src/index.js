@@ -4,12 +4,15 @@ const PORT = process.env.PORT || 3000;
 const prisma = require("./lib/prisma");
 
 const questionsRouter = require("./routes/questions");
+const authRouter = require("./routes/auth");
 
 // Middleware to parse JSON bodies (will be useful in later steps)
 app.use(express.json());
 
 //everything under /api/questions
+app.use("/api/auth", authRouter);
 app.use("/api/questions", questionsRouter);
+
 
 //for unsupportetd routes, we send 404 not found (catch anything unsupported)
 app.use((req,res)=> {
