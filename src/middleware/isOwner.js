@@ -5,7 +5,7 @@ async function isOwner (req, res, next) {
     const id = Number(req.params.questionId);
     const question = await prisma.question.findUnique({
         where: { id },
-        include: { keywords: true },
+        include: { keywords: true }
     });
 
     if (!question) {

@@ -12,11 +12,17 @@ function formatQuestion(question) {
     return {
         ...question,
         keywords: question.keywords.map((k) => k.name),
+        userName: question.user?.name || null,
+        likeCount: question._count?.likes ?? 0,
+        liked: question.likes ? question.likes.length > 0 : false,
+        user: undefined,
+        likes: undefined,
+        _count: undefined
     };
 }
 
 
-// GET /api/questions, /api/questins?keyword=http
+// GET /api/questions, /api/questins?keyword=http&page=1&limit=5
 // List all questions
 router.get("/", async (req, res) => {
     const {keyword} = req.query;
@@ -25,11 +31,33 @@ router.get("/", async (req, res) => {
     ? { keywords: { some: { name: keyword } } }
     : {};
 
-    const filteredQuestions = await prisma.question.findMany({
-        where,
-        include: { keywords: true },
-        orderBy: { id: "asc" },
-    });
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 5));
+    const skip = (page - 1) * limit;
+
+    const [filteredQuestions, total] = await Promise.all([
+        prisma.question.findMany({
+            where,
+            include: { 
+                keywords: true, 
+                user: true,
+                likes: { where: { userId: req.user.userId }, take: 1 },
+                _count: { select: { likes: true } }
+            },
+            orderBy: { id: "asc" },
+            skip,
+            take: limit,
+        }),
+
+    prisma.question.count({ where })]);
+    
+    res.json({
+    data: filteredQuestions.map(formatQuestion),
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+});
 
     res.json(filteredQuestions.map(formatQuestion));
 
@@ -41,7 +69,13 @@ router.get("/:questionId", async (req, res) => {
 
     const question = await prisma.question.findUnique({
         where: { id: questionId },
-        include: { keywords: true },
+        include: { 
+            keywords: true, 
+            user: true,
+            likes: { where: { userId: req.user.userId }, take: 1 },
+            _count: { select: { likes: true } }, 
+        },
+        orderBy: { id: "asc" }
     });
 
     if (!question) {
@@ -49,7 +83,6 @@ router.get("/:questionId", async (req, res) => {
 		message: "Question not found" 
     });
 }
-
 
     res.json(formatQuestion(question));
 });
@@ -72,7 +105,7 @@ router.post("/", async (req, res) => {
                 where: { name: kw }, create: { name: kw },
                 })), },
         },
-        include: { keywords: true },
+        include: { keywords: true}
     });
 
     res.status(201).json(formatQuestion(newQuestion));
@@ -105,7 +138,7 @@ router.put("/:questionId", isOwner, async (req,res) => {
             })),
         },
         },
-        include: { keywords: true },
+        include: { keywords: true}
     });
     res.json(formatQuestion(updatedQuestion));
     
@@ -117,7 +150,7 @@ router.delete("/:questionId", isOwner, async (req, res)=> {
     
     const question = await prisma.question.findUnique({
     where: { id: questionId },
-    include: { keywords: true },
+    include: { keywords: true, user: true },
     });
 
     if (!question) {
@@ -133,5 +166,52 @@ router.delete("/:questionId", isOwner, async (req, res)=> {
 
 
 });
+
+//POST /api/questions/:questionId/like
+router.post("/:questionId/like", async (req, res) => {
+    const questionId = Number(req.params.questionId);
+
+    const question = await prisma.question.findUnique({ where: { id: questionId } });
+    if (!question) {
+        return res.status(404).json({ message: "Question not found" });
+    }
+
+    //new entry, max 1 like per question
+    //upsert makes this idempotent :  clicking like twice doesn’t error
+    const like = await prisma.like.upsert({
+        where: { userId_questionId: { userId: req.user.userId, questionId } },
+        update: {},
+        create: { userId: req.user.userId, questionId },
+    });
+
+    const likeCount = await prisma.like.count({ where: { questionId } });
+
+    res.status(201).json({
+        id: like.id,
+        questionId,
+        liked: true,
+        likeCount,
+        createdAt: like.createdAt,
+    });
+});
+
+//DELETE /api/questions/:questionId/like
+router.delete("/:questionId/like", async (req, res) => {
+    const questionId = Number(req.params.questionId);
+
+    const question = await prisma.question.findUnique({ where: { id: questionId } });
+    if (!question) {
+        return res.status(404).json({ message: "Question not found" });
+    }
+
+    await prisma.like.deleteMany({
+        where: { userId: req.user.userId, questionId },
+    });
+
+    const likeCount = await prisma.like.count({ where: { questionId } });
+
+    res.json({ questionId, liked: false, likeCount });
+});
+
 
 module.exports = router;

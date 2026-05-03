@@ -4,7 +4,7 @@ const SECRET = process.env.JWT_SECRET;
 function authenticate(req, res, next) {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return res.status(401).json({ error: "No token provided" });
     }
 

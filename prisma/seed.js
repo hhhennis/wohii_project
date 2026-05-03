@@ -28,8 +28,8 @@ async function main() {
         data: {
         email: "admin@example.com",
         password: hashedPassword,
-        name: "Admin User",
-        },
+        name: "Admin User"
+        }
     });
 
     console.log("Created user:", user.email);
