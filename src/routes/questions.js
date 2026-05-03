@@ -1,8 +1,29 @@
 const express = require("express");
+const path = require("path");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 const authenticate = require("../middleware/auth");
 const isOwner = require("../middleware/isOwner");
+const multer = require("multer");
+
+
+const storage = multer.diskStorage({
+    destination: path.join(__dirname, "..", "..", "public", "uploads"),
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+    },
+});
+
+const upload = multer({
+    storage,
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith("image/")) cb(null, true);
+        else cb(new Error("Only image files are allowed"));
+    },
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
+
 
 // Apply authentication to ALL routes in this router
 router.use(authenticate);
@@ -88,7 +109,7 @@ router.get("/:questionId", async (req, res) => {
 });
 
 //POST /api/questions
-router.post("/", async (req, res) => {
+router.post("/", upload.single("image"), async (req, res) => {
     const {question, answer, keywords} = req.body;
     if(!question || !answer) {
         return res.status(400).json({msg: "Question and answer are required"})
@@ -96,9 +117,11 @@ router.post("/", async (req, res) => {
 
     const keywordsArray = Array.isArray(keywords) ? keywords : [];
 
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
+
     const newQuestion = await prisma.question.create({
         data: {
-            question, answer,
+            question, answer, imageUrl,
             userId: req.user.userId,
             keywords: {
                 connectOrCreate: keywordsArray.map((kw) => ({
@@ -112,7 +135,7 @@ router.post("/", async (req, res) => {
 });
 
 //PUT /api/questitons/:questionId
-router.put("/:questionId", isOwner, async (req,res) => {
+router.put("/:questionId", isOwner, upload.single("image"), async (req,res) => {
     const questionId = Number(req.params.questionId);
     const {question, answer, keywords} = req.body;
     
@@ -122,14 +145,16 @@ router.put("/:questionId", isOwner, async (req,res) => {
     }
 
     if (!question || !answer) {
-        return res.status(400).json({ msg: "quesion and answer are mandatory" });
+        return res.status(400).json({ msg: "question and answer are mandatory" });
     }
+
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     const keywordsArray = Array.isArray(keywords) ? keywords : [];
     const updatedQuestion = await prisma.question.update({
         where: { id: questionId },
         data: {
-        question, answer,
+        question, answer, imageUrl,
         keywords: {
             set: [],
             connectOrCreate: keywordsArray.map((kw) => ({
